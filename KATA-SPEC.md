@@ -2,6 +2,8 @@
 
 A kata is a frozen strategy: a pure, deterministic function of a fixed window of closed bars. MONARK calibrates each kata per cell and gates the calls an agent makes with it. MONARK does not run the kata; the agent does. This document lets an agent compute the same value MONARK calibrated, and check it against the conformance vectors.
 
+**Version 2026-10-02.** It replaces the version of 2026-10-01. Section 4 now writes the order of the operations in the EWMA term, which the first version left open. Section 6 adds two decisions to the `random_walk` case and the `ewma_association` cases, so there are now 333 checks instead of 317. No kata value changes: the code already computed this order, and every value stored in the first version is unchanged.
+
 Source of the rules: the strategy library pre-registration (ADR 0005 v3.1, sha256 `b011e4de3c1b2644af03d15db5992ea964c896a0255e59f7fe4f810736e27b60`, fingerprint posted in the public repository `KraidleAI/monark-precommitments`, commit `36c0982`). The labels (close(t), the path moves, the drop rules) are defined there and in the plan of this part; a caller needs only the sections below.
 
 ## 1. Bars and the decision time
@@ -37,7 +39,7 @@ Source of the rules: the strategy library pre-registration (ADR 0005 v3.1, sha25
 
 | Id | W | Value |
 |---|---|---|
-| `ewma-vol-hw-v1` | 101 bars (100 returns) | sigma_raw = sqrt(sum of w_i r_i^2), w_i = 0.94^i / sum_j 0.94^j with i = 0 for the most recent return, each weight normalized before use. |
+| `ewma-vol-hw-v1` | 101 bars (100 returns) | sigma_raw = sqrt(sum of w_i r_i^2), w_i = 0.94^i / sum_j 0.94^j with i = 0 for the most recent return, each weight normalized before use. Each term is computed as `(w_i * r_i) * r_i`: the weight times the return, then times the return, left to right. The other order, `w_i * (r_i * r_i)`, can differ in the last bit. |
 | `realized-vol-hw-v1` | 49 bars (48 returns) | sigma_raw = root mean square of the 48 returns. |
 | `parkinson-hw-v1` | 48 bars | sigma_raw = sqrt(mean of ln(high / low)^2 / (4 ln 2)). |
 
@@ -65,10 +67,11 @@ Source of the rules: the strategy library pre-registration (ADR 0005 v3.1, sha25
 - `kata_cases[].bars` are arrays `[start, open, high, low, close, volume, takerBuyBase]`.
 - For each decision, `end` is the number of bars available, and the window of a kata is `bars[end - W : end]`.
 - `digests` gives the `features_digest` of three windows, `factors` and `factors_4h` hour-of-week tables at 1h and 4h.
+- `ewma_association` gives two windows of `random_walk` (ends 107 and 122) on which the two orders of the EWMA term give different doubles. `value` is the order of section 4, and `other_association` is the other order. They are compared bit for bit, not within the tolerance below, because within 1e-12 the two orders cannot be told apart. A recomputation that wants to match the reference to the bit can use them to check which order it runs.
 - **Conformance contract.** An implementation conforms when every value is within a relative 1e-12 of the reference value (absolute 1e-15 near zero), every string (thresholds, buckets, `non_evaluable`, digests) is equal, and every number written into the digest bytes is written as section 1 says.
 - **Bit identity is not promised across platforms.** The natural logarithm of two standard libraries can differ by one unit in the last place on some inputs (measured by MONARK's review on one host: 5 256 of 1 000 000 ratios in [0.95, 1.05] between Node v24.15.0 and Python 3.14.5 on Windows 10), so two correct implementations can differ in the last bit of a lean or a scale.
 - **Near a bucket edge.** A lean within 1e-12 relative of a published threshold can fall in the neighbouring bucket on another platform. MONARK derives the bucket from the `yhat` the caller sends, so the caller is served the cell of the value it actually computed.
-- **Measured, not promised.** The reference code (Node v24.21.0) and an independent implementation (Python 3.11) agree bit for bit on all 317 checks of these vectors. The independent implementation was written from the pre-registration and the plan by a separate instance instructed not to read the reference code; this is declared by its author, and the instruction is recorded in the plan.
+- **Measured, not promised.** The reference code (Node v24.21.0) and an independent implementation (Python 3.11) agree bit for bit on all 333 checks of these vectors (Python 3.11 for the first 317, Python 3.11.15 for this version). The independent implementation was written from the pre-registration and the plan by a separate instance instructed not to read the reference code; this is declared by its author, and the instruction is recorded in the plan. The `ewma_association` lines were added to it in this version by the author of the reference code, who had read it.
 
 ## 7. What a kata value is not
 
